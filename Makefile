@@ -1,5 +1,5 @@
 # Compiler
-CXX = riscv64-linux-gnu-g++
+CXX = riscv64-linux-gnu-gcc
 
 
 # Path to the directory that contains the 'evpp' header root
@@ -10,7 +10,7 @@ CXX = riscv64-linux-gnu-g++
 # Compiler flags
 # -I$(EVPP_INCLUDE_ROOT) tells g++ to look in '3rdparty/evpp' for headers.
 # So, '#include <evpp/tcp_server.h>' will correctly resolve to '3rdparty/evpp/evpp/tcp_server.h'.
-CXXFLAGS = -S -O0 -march=rv64gcv -mabi=lp64d -static -pthread -lrt -I thirdparty/crow/include
+CXXFLAGS = -O0 -march=rv64gcv -mabi=lp64d -static -pthread -lrt -I thirdparty/crow/include
 
 # Linker flags
 # These link your executable with the evpp library and its dependencies.
@@ -30,7 +30,7 @@ SRCS = $(wildcard compressv/*.c)
 OBJS = $(SRCS:.c=.o)
 
 # Default rule to build and run the executable
-all: $(TARGET) run
+all: $(TARGET)
 
 # Rule to link object files into the target executable
 $(TARGET): $(OBJS)
@@ -40,9 +40,6 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Rule to run the executable
-run: $(TARGET)
-	./$(TARGET)
 
 # Clean rule to remove generated files
 clean:

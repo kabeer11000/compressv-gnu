@@ -8,6 +8,11 @@ int main()
                          { 
                             return "Hello world"; 
                         });
+    CROW_ROUTE(app, "/test")([]()
+                         { 
+                    
+                            return "Test's Completed"; 
+                        });
 
     app.port(18080).multithreaded().run();
 }
