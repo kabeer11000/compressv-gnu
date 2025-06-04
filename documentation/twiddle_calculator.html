@@ -1,0 +1,270 @@
+import React, { useState, useEffect } from 'react';
+
+const TwiddleFactorDemo = () => {
+  const [N, setN] = useState(8);
+  const [selectedK, setSelectedK] = useState(0);
+  const [showVectors, setShowVectors] = useState(true);
+
+  // Calculate twiddle factor for given N and k
+  const calculateTwiddle = (N, k) => {
+    const angle = -2 * Math.PI * k / N;
+    return {
+      real: Math.cos(angle),
+      imag: Math.sin(angle),
+      angle: angle,
+      magnitude: 1
+    };
+  };
+
+  // Generate all twiddle factors for size N
+  const generateTwiddleFactors = (N) => {
+    const factors = [];
+    for (let k = 0; k < N; k++) {
+      factors.push({
+        k: k,
+        ...calculateTwiddle(N, k)
+      });
+    }
+    return factors;
+  };
+
+  const twiddleFactors = generateTwiddleFactors(N);
+  const selectedTwiddle = twiddleFactors[selectedK];
+
+  // SVG parameters
+  const centerX = 150;
+  const centerY = 150;
+  const radius = 100;
+  const scale = 80;
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 bg-white">
+      <h2 className="text-2xl font-bold mb-6 text-center">Twiddle Factor Visualization</h2>
+      
+      {/* Controls */}
+      <div className="mb-6 space-y-4">
+        <div className="flex items-center space-x-4">
+          <label className="font-semibold">FFT Size (N):</label>
+          <select 
+            value={N} 
+            onChange={(e) => setN(parseInt(e.target.value))}
+            className="border border-gray-300 rounded px-3 py-1"
+          >
+            <option value={4}>4</option>
+            <option value={8}>8</option>
+            <option value={16}>16</option>
+            <option value={32}>32</option>
+          </select>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <label className="font-semibold">Frequency Index (k):</label>
+          <input 
+            type="range" 
+            min="0" 
+            max={N-1} 
+            value={selectedK}
+            onChange={(e) => setSelectedK(parseInt(e.target.value))}
+            className="flex-1"
+          />
+          <span className="w-8 text-center">{selectedK}</span>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <label className="font-semibold">
+            <input 
+              type="checkbox" 
+              checked={showVectors}
+              onChange={(e) => setShowVectors(e.target.checked)}
+              className="mr-2"
+            />
+            Show all vectors
+          </label>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Unit Circle Visualization */}
+        <div className="border border-gray-300 rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-4">Unit Circle Representation</h3>
+          
+          <svg width="300" height="300" className="border">
+            {/* Grid lines */}
+            <defs>
+              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f0f0f0" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="300" height="300" fill="url(#grid)" />
+            
+            {/* Axes */}
+            <line x1="0" y1={centerY} x2="300" y2={centerY} stroke="#ccc" strokeWidth="2"/>
+            <line x1={centerX} y1="0" x2={centerX} y2="300" stroke="#ccc" strokeWidth="2"/>
+            
+            {/* Unit circle */}
+            <circle cx={centerX} cy={centerY} r={radius} fill="none" stroke="#ddd" strokeWidth="2"/>
+            
+            {/* Angle markings */}
+            {Array.from({length: N}, (_, i) => {
+              const angle = -2 * Math.PI * i / N;
+              const x = centerX + radius * Math.cos(angle);
+              const y = centerY + radius * Math.sin(angle);
+              return (
+                <g key={i}>
+                  <circle cx={x} cy={y} r="3" fill={i === selectedK ? "#ff4444" : "#888"} />
+                  <text x={x + 10} y={y - 10} fontSize="12" fill={i === selectedK ? "#ff4444" : "#666"}>
+                    k={i}
+                  </text>
+                </g>
+              );
+            })}
+            
+            {/* Show all vectors if enabled */}
+            {showVectors && twiddleFactors.map((factor, i) => {
+              const x = centerX + scale * factor.real;
+              const y = centerY - scale * factor.imag; // Negative because SVG Y is inverted
+              return (
+                <line 
+                  key={i}
+                  x1={centerX} 
+                  y1={centerY} 
+                  x2={x} 
+                  y2={y} 
+                  stroke={i === selectedK ? "#ff4444" : "#aaa"} 
+                  strokeWidth={i === selectedK ? "3" : "1"}
+                  markerEnd={i === selectedK ? "url(#arrowhead)" : ""}
+                />
+              );
+            })}
+            
+            {/* Selected vector */}
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                      refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#ff4444" />
+              </marker>
+            </defs>
+            
+            {/* Angle arc */}
+            <path 
+              d={`M ${centerX + 30} ${centerY} A 30 30 0 ${Math.abs(selectedTwiddle.angle) > Math.PI ? 1 : 0} 0 
+                  ${centerX + 30 * Math.cos(selectedTwiddle.angle)} ${centerY - 30 * Math.sin(selectedTwiddle.angle)}`}
+              fill="none" 
+              stroke="#ff4444" 
+              strokeWidth="2"
+            />
+            
+            {/* Labels */}
+            <text x="280" y={centerY + 5} fontSize="12" fill="#666">Real</text>
+            <text x={centerX + 5} y="15" fontSize="12" fill="#666">Imag</text>
+          </svg>
+        </div>
+
+        {/* Mathematical Details */}
+        <div className="space-y-4">
+          <div className="border border-gray-300 rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-4">Current Twiddle Factor</h3>
+            <div className="space-y-2 font-mono text-sm">
+              <div><strong>W_{N}^{selectedK}</strong> = W_{N}^{selectedK}</div>
+              <div>N = {N}, k = {selectedK}</div>
+              <div>Angle = -2π×{selectedK}/{N} = {selectedTwiddle.angle.toFixed(4)} radians</div>
+              <div>Angle = {(selectedTwiddle.angle * 180 / Math.PI).toFixed(1)}°</div>
+              <div className="border-t pt-2 mt-2">
+                <div>Real = cos({selectedTwiddle.angle.toFixed(4)}) = <span className="text-blue-600">{selectedTwiddle.real.toFixed(4)}</span></div>
+                <div>Imag = sin({selectedTwiddle.angle.toFixed(4)}) = <span className="text-red-600">{selectedTwiddle.imag.toFixed(4)}</span></div>
+              </div>
+              <div className="border-t pt-2 mt-2">
+                <div><strong>Complex form:</strong></div>
+                <div>{selectedTwiddle.real.toFixed(4)} {selectedTwiddle.imag >= 0 ? '+' : ''} {selectedTwiddle.imag.toFixed(4)}j</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-gray-300 rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-4">Fixed-Point Representation</h3>
+            <div className="space-y-2 font-mono text-sm">
+              <div>Q15 Format (1 sign + 16 int + 15 frac bits)</div>
+              <div>Scale factor = 2^15 = {Math.pow(2, 15)}</div>
+              <div className="border-t pt-2 mt-2">
+                <div>Real_fp = {Math.round(selectedTwiddle.real * Math.pow(2, 15))}</div>
+                <div>Imag_fp = {Math.round(selectedTwiddle.imag * Math.pow(2, 15))}</div>
+              </div>
+              <div className="text-xs text-gray-600 mt-2">
+                (These are the actual values stored in your ComplexInt structure)
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-gray-300 rounded-lg p-4">
+            <h3 className="text-lg font-semibold mb-4">Butterfly Operation</h3>
+            <div className="space-y-2 text-sm">
+              <div>Given inputs u and v:</div>
+              <div className="font-mono bg-gray-100 p-2 rounded">
+                temp = v × W_{N}^{selectedK}<br/>
+                u' = u + temp<br/>
+                v' = u - temp
+              </div>
+              <div className="text-xs text-gray-600">
+                This rotation by W_{N}^{selectedK} is what enables the FFT to decompose signals into frequency components.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Twiddle Factor Table */}
+      <div className="mt-6 border border-gray-300 rounded-lg p-4">
+        <h3 className="text-lg font-semibold mb-4">All Twiddle Factors for N={N}</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="p-2 text-left">k</th>
+                <th className="p-2 text-left">Angle (rad)</th>
+                <th className="p-2 text-left">Angle (deg)</th>
+                <th className="p-2 text-left">Real</th>
+                <th className="p-2 text-left">Imaginary</th>
+                <th className="p-2 text-left">Complex Form</th>
+                <th className="p-2 text-left">Fixed-Point (Q15)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {twiddleFactors.map((factor, i) => (
+                <tr 
+                  key={i} 
+                  className={`border-t cursor-pointer hover:bg-gray-50 ${i === selectedK ? 'bg-blue-50' : ''}`}
+                  onClick={() => setSelectedK(i)}
+                >
+                  <td className="p-2 font-mono">{factor.k}</td>
+                  <td className="p-2 font-mono">{factor.angle.toFixed(4)}</td>
+                  <td className="p-2 font-mono">{(factor.angle * 180 / Math.PI).toFixed(1)}°</td>
+                  <td className="p-2 font-mono text-blue-600">{factor.real.toFixed(4)}</td>
+                  <td className="p-2 font-mono text-red-600">{factor.imag.toFixed(4)}</td>
+                  <td className="p-2 font-mono">{factor.real.toFixed(3)} {factor.imag >= 0 ? '+' : ''} {factor.imag.toFixed(3)}j</td>
+                  <td className="p-2 font-mono text-xs">
+                    {Math.round(factor.real * Math.pow(2, 15))}, {Math.round(factor.imag * Math.pow(2, 15))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Key Insights */}
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="text-lg font-semibold mb-2 text-blue-800">Key Insights</h3>
+        <ul className="text-sm text-blue-700 space-y-1">
+          <li>• Twiddle factors are points on the unit circle, spaced equally by 2π/N</li>
+          <li>• Each factor rotates a complex number by a specific angle in the frequency domain</li>
+          <li>• W_N^0 = 1 (no rotation), W_N^(N/2) = -1 (180° rotation)</li>
+          <li>• The same twiddle factors are reused across all FFT stages</li>
+          <li>• Precomputing them once saves expensive trigonometric calculations during FFT</li>
+          <li>• Fixed-point representation trades precision for speed and determinism</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default TwiddleFactorDemo;
