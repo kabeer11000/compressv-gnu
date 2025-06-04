@@ -2,7 +2,7 @@
 
 # Define compiler and flags
 CXX="riscv64-linux-gnu-g++"
-CFLAGS="-O3 -march=rv64gcv -mabi=lp64d -static -pthread -lrt -lm"
+CFLAGS="-S -O0 -march=rv64gcv -mabi=lp64d -static -pthread -lrt -lm"
 INCLUDE_FLAGS="-I./include -Ithirdparty/crow/include" # Adjust CROW_INCLUDE_PATH if necessary
 OUT_DIR="bin"
 EXECUTABLE_NAME="image_compressor_server"
