@@ -1,37 +1,43 @@
+
+// complex_int.h - Corrected complex number operations
 #ifndef COMPLEX_INT_H
 #define COMPLEX_INT_H
 
 #include "fixed_point.h"
 
-// Structure for a fixed-point complex number
 struct ComplexInt {
-    fixed_point_t real; // Real part
-    fixed_point_t imag; // Imaginary part
+    fixed_point_t real;
+    fixed_point_t imag;
+    
+    ComplexInt() : real(0), imag(0) {}
+    ComplexInt(fixed_point_t r, fixed_point_t i) : real(r), imag(i) {}
 };
 
-// --- Complex Arithmetic Operations (Scalar Fixed-Point) ---
-
-// Complex addition: (a.re + b.re) + i(a.im + b.im)
-inline ComplexInt cint_add(ComplexInt a, ComplexInt b) {
-    return {fp_add(a.real, b.real), fp_add(a.imag, b.imag)};
+// Convert float pair to complex fixed point
+inline ComplexInt float_to_cint(float real_f, float imag_f) {
+    return ComplexInt(float_to_fp(real_f), float_to_fp(imag_f));
 }
 
-// Complex subtraction: (a.re - b.re) + i(a.im - b.im)
-inline ComplexInt cint_sub(ComplexInt a, ComplexInt b) {
-    return {fp_sub(a.real, b.real), fp_sub(a.imag, b.imag)};
+// Complex addition
+inline ComplexInt cint_add(const ComplexInt& a, const ComplexInt& b) {
+    return ComplexInt(fp_add(a.real, b.real), fp_add(a.imag, b.imag));
 }
 
-// Complex multiplication: (a+bi)(c+di) = (ac-bd) + (ad+bc)i
-// All intermediate products (ac, bd, ad, bc) are fixed-point multiplications.
-inline ComplexInt cint_mul(ComplexInt a, ComplexInt b) {
-    fixed_point_t res_real = fp_sub(fp_mul(a.real, b.real), fp_mul(a.imag, b.imag));
-    fixed_point_t res_imag = fp_add(fp_mul(a.real, b.imag), fp_mul(a.imag, b.real));
-    return {res_real, res_imag};
+// Complex subtraction
+inline ComplexInt cint_sub(const ComplexInt& a, const ComplexInt& b) {
+    return ComplexInt(fp_sub(a.real, b.real), fp_sub(a.imag, b.imag));
 }
 
-// Convert float real/imaginary parts to FixedComplex
-inline ComplexInt float_to_cint(float real_val, float imag_val) {
-    return {float_to_fp(real_val), float_to_fp(imag_val)};
+// Complex multiplication: (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+inline ComplexInt cint_mul(const ComplexInt& a, const ComplexInt& b) {
+    fixed_point_t real_part = fp_sub(fp_mul(a.real, b.real), fp_mul(a.imag, b.imag));
+    fixed_point_t imag_part = fp_add(fp_mul(a.real, b.imag), fp_mul(a.imag, b.real));
+    return ComplexInt(real_part, imag_part);
+}
+
+// Complex magnitude squared (for filtering)
+inline fixed_point_t cint_mag_squared(const ComplexInt& a) {
+    return fp_add(fp_mul(a.real, a.real), fp_mul(a.imag, a.imag));
 }
 
 #endif // COMPLEX_INT_H

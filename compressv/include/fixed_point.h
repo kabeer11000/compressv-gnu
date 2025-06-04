@@ -1,45 +1,37 @@
+// fixed_point.h - Corrected fixed point arithmetic
 #ifndef FIXED_POINT_H
 #define FIXED_POINT_H
 
-#include <stdint.h>
-#include <cmath> // For std::round
+#include <cstdint>
+#include <cmath>
 
-// Define the number of fractional bits for our fixed-point numbers.
-// Q=15 for int32_t means: 1 sign bit, 16 integer bits, 15 fractional bits.
-// This allows a range of approx +/- 32767 for the integer part and a fractional precision of 1/32768.
-// For FFT, values can grow, so you might need a larger Q for intermediate results
-// or larger fixed_point_t (e.g., int64_t for intermediate products).
-#define FIXED_POINT_Q_BITS 15
-#define FIXED_POINT_SCALE (1 << FIXED_POINT_Q_BITS) // Represents 1.0 in fixed-point
+// Use Q15 format: 1 sign bit + 16 integer bits + 15 fractional bits
+typedef int32_t fixed_point_t;
+const int FIXED_POINT_FRACTIONAL_BITS = 15;
+const fixed_point_t FIXED_POINT_ONE = 1 << FIXED_POINT_FRACTIONAL_BITS;
 
-typedef int32_t fixed_point_t; // Our fixed-point number type
-
-// --- Conversion Functions ---
-
-// Convert float to fixed-point_t
-inline fixed_point_t float_to_fp(float val) {
-    return static_cast<fixed_point_t>(std::round(val * FIXED_POINT_SCALE));
+// Convert float to fixed point
+inline fixed_point_t float_to_fp(float f) {
+    return static_cast<fixed_point_t>(f * FIXED_POINT_ONE);
 }
 
-// Convert fixed-point_t to float
-inline float fp_to_float(fixed_point_t val) {
-    return static_cast<float>(val) / FIXED_POINT_SCALE;
+// Convert fixed point to float
+inline float fp_to_float(fixed_point_t fp) {
+    return static_cast<float>(fp) / FIXED_POINT_ONE;
 }
 
-// --- Arithmetic Operations ---
-
-// Fixed-point multiplication: (a * b) / 2^Q_BITS
-// Uses int64_t for intermediate product to prevent overflow before scaling.
+// Fixed point multiplication
 inline fixed_point_t fp_mul(fixed_point_t a, fixed_point_t b) {
-    return static_cast<fixed_point_t>((static_cast<int64_t>(a) * b) >> FIXED_POINT_Q_BITS);
+    int64_t result = static_cast<int64_t>(a) * static_cast<int64_t>(b);
+    return static_cast<fixed_point_t>(result >> FIXED_POINT_FRACTIONAL_BITS);
 }
 
-// Fixed-point addition
+// Fixed point addition
 inline fixed_point_t fp_add(fixed_point_t a, fixed_point_t b) {
     return a + b;
 }
 
-// Fixed-point subtraction
+// Fixed point subtraction
 inline fixed_point_t fp_sub(fixed_point_t a, fixed_point_t b) {
     return a - b;
 }

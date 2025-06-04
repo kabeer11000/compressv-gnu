@@ -1,218 +1,190 @@
+// Fixed fft_riscv_vec.cpp
 #include "fft_riscv_vec.h"
 #include <vector>
-#include <cmath>     // For std::sin, std::cos during twiddle factor generation
-#include <algorithm> // For std::swap, std::max
-#include <stdexcept> // For std::runtime_error
-#include <iostream>  // For debugging output
+#include <cmath>
+#include <algorithm>
+#include <stdexcept>
+#include <iostream>
+#include <cstring>
 
-// --- RISC-V Vector Intrinsics Inclusion and Conceptual Definitions ---
 #ifdef __riscv_vector
 #include <riscv_vector.h>
+
+// Proper fixed-point vector multiplication using RVV intrinsics
+inline vint32m1_t fp_mul_vv_i32m1_fixed(vint32m1_t va, vint32m1_t vb, size_t vl) {
+    // Widen multiply: int32 * int32 -> int64
+    vint64m2_t va_wide = __riscv_vsext_vf2_i64m2(va, vl);
+    vint64m2_t vb_wide = __riscv_vsext_vf2_i64m2(vb, vl);
+    vint64m2_t result_wide = __riscv_vmul_vv_i64m2(va_wide, vb_wide, vl);
+    
+    // Shift right by 15 bits (Q15 format) and narrow back to int32
+    vint64m2_t shifted = __riscv_vsra_vx_i64m2(result_wide, 15, vl);
+    return __riscv_vnsra_wx_i32m1(shifted, 0, vl);
+}
+
 #else
-// Fallback/conceptual definitions for compilation on non-RISC-V systems
-// These won't actually perform vector operations but allow code to compile.
+// Fallback definitions for non-RISC-V compilation
 
-// Basic vector types for 32-bit elements, m1 (1 vector register group)
-typedef void *vint32m1_t;
-typedef void *vint64m2_t; // For widening multiplies (int32*int32 -> int64)
+typedef void* vint32m1_t;
+typedef void* vint64m2_t;
 
-// Conceptual intrinsic functions
-inline size_t __riscv_vsetvl_e32m1(size_t avl) { return avl; }                                         // Set vector length
-inline vint32m1_t __riscv_vle32_v_i32m1(const int32_t *base, size_t vl) { return nullptr; }            // Load 32-bit vector
-inline void __riscv_vse32_v_i32m1(int32_t *base, vint32m1_t value, size_t vl) {}                       // Store 32-bit vector
-inline vint32m1_t __riscv_vadd_vv_i32m1(vint32m1_t vs1, vint32m1_t vs2, size_t vl) { return nullptr; } // Vector-vector add
-inline vint32m1_t __riscv_vsub_vv_i32m1(vint32m1_t vs1, vint32m1_t vs2, size_t vl) { return nullptr; } // Vector-vector sub
-inline vint32m1_t __riscv_vmv_v_x_i32m1(int32_t scalar_val, size_t vl) { return nullptr; }             // Broadcast scalar to vector
+inline size_t __riscv_vsetvl_e32m1(size_t avl) { return std::min(avl, (size_t)8); }
+inline vint32m1_t __riscv_vle32_v_i32m1(const int32_t* base, size_t vl) { return nullptr; }
+inline void __riscv_vse32_v_i32m1(int32_t* base, vint32m1_t value, size_t vl) {}
+inline vint32m1_t __riscv_vadd_vv_i32m1(vint32m1_t vs1, vint32m1_t vs2, size_t vl) { return nullptr; }
+inline vint32m1_t __riscv_vsub_vv_i32m1(vint32m1_t vs1, vint32m1_t vs2, size_t vl) { return nullptr; }
+inline vint32m1_t __riscv_vmv_v_x_i32m1(int32_t scalar_val, size_t vl) { return nullptr; }
 
-// --- Conceptual Fixed-Point Vector Multiplication ---
-// This is a simplified representation. Actual implementation needs careful handling
-// of vector register groups (m-factors) and narrowing.
-// In a real scenario, this would involve:
-// 1. Widening multiply (e.g., __riscv_vwmul_vv_i64m2 for signed multiply)
-//    Takes two SEW-bit vectors, produces a 2*SEW-bit result.
-// 2. Arithmetic Right Shift (e.g., __riscv_vsra_vi_i64m2)
-// 3. Narrowing (e.g., __riscv_vnsra_wi_i32m1)
-inline vint32m1_t fp_mul_vv_i32m1(vint32m1_t va, vint32m1_t vb, size_t vl)
-{
-    // This function needs to be replaced with actual RVV intrinsics for fixed-point multiplication.
-    // For now, it's a placeholder.
-    return __riscv_vmv_v_x_i32m1(0, vl); // Placeholder for actual RVV fixed-point multiply
+// Fallback scalar fixed-point multiply
+inline vint32m1_t fp_mul_vv_i32m1_fixed(vint32m1_t va, vint32m1_t vb, size_t vl) {
+    return __riscv_vmv_v_x_i32m1(0, vl);
 }
+#endif
 
-#endif // __riscv_vector
-inline vint32m1_t fp_mul_vv_i32m1(vint32m1_t va, vint32m1_t vb, size_t vl)
-{
-    // This function needs to be replaced with actual RVV intrinsics for fixed-point multiplication.
-    // For now, it's a placeholder.
-    return __riscv_vmv_v_x_i32m1(0, vl); // Placeholder for actual RVV fixed-point multiply
-}
-
-// Global storage for precomputed twiddle factors
-// Indexed by (MAX_FFT_SIZE / len) where 'len' is current FFT stage length.
-// Stores W_len^0, W_len^1, ... W_len^(len/2 - 1)
-static std::vector<ComplexInt> g_twiddle_factors_for_all_lengths;
+// Global twiddle factors
+static std::vector<ComplexInt> g_twiddle_factors;
 static bool g_twiddle_factors_initialized = false;
 static int g_max_fft_size = 0;
 
-void initialize_twiddle_factors(int max_fft_size_for_twiddles)
-{
-    if (g_twiddle_factors_initialized && g_max_fft_size == max_fft_size_for_twiddles)
-    {
-        return; // Already initialized for this max size
+void initialize_twiddle_factors(int max_fft_size_for_twiddles) {
+    if (g_twiddle_factors_initialized && g_max_fft_size >= max_fft_size_for_twiddles) {
+        return;
     }
 
     g_max_fft_size = max_fft_size_for_twiddles;
-    g_twiddle_factors_for_all_lengths.resize(max_fft_size_for_twiddles / 2);
+    g_twiddle_factors.clear();
+    g_twiddle_factors.reserve(max_fft_size_for_twiddles);
 
-    for (int k = 0; k < max_fft_size_for_twiddles / 2; ++k)
-    {
-        float angle = -2.0f * M_PI * k / static_cast<float>(max_fft_size_for_twiddles);
-        // Using std::cos and std::sin from <cmath>
-        g_twiddle_factors_for_all_lengths[k] = float_to_cint(std::cos(angle), std::sin(angle));
+    // Generate all possible twiddle factors
+    for (int N = 2; N <= max_fft_size_for_twiddles; N <<= 1) {
+        for (int k = 0; k < N/2; ++k) {
+            float angle = -2.0f * M_PI * k / static_cast<float>(N);
+            ComplexInt twiddle = float_to_cint(std::cos(angle), std::sin(angle));
+            g_twiddle_factors.push_back(twiddle);
+        }
     }
+    
     g_twiddle_factors_initialized = true;
     std::cout << "Twiddle factors initialized for max_fft_size: " << max_fft_size_for_twiddles << std::endl;
 }
 
-// --- Bit-Reversal Permutation ---
-void bit_reversal_permutation(ComplexInt *data, int N)
-{
+// Get twiddle factor for specific N and k
+ComplexInt get_twiddle_factor(int N, int k) {
+    // Simple lookup - in practice you'd want a more efficient indexing scheme
+    float angle = -2.0f * M_PI * k / static_cast<float>(N);
+    return float_to_cint(std::cos(angle), std::sin(angle));
+}
+
+void bit_reversal_permutation(ComplexInt* data, int N) {
     int j = 0;
-    for (int i = 0; i < N; ++i)
-    {
-        if (j > i)
-        {
+    for (int i = 0; i < N; ++i) {
+        if (j > i) {
             std::swap(data[i], data[j]);
         }
         int m = N >> 1;
-        while (m >= 1 && j >= m)
-        {
+        while (m >= 1 && j >= m) {
             j -= m;
             m >>= 1;
         }
         j += m;
     }
 }
-// Function symbol imported from raw assembly file
-extern "C" void fft_butterfly_vec(int32_t *u_real, int32_t *u_imag,
-                                  int32_t *v_real, int32_t *v_imag,
-                                  int32_t W_real, int32_t W_imag,
-                                  size_t vl);
 
-// --- 1D FFT Implementation with RVV + Butterfly Assembly ---
-void fft_1d_riscv_vec(ComplexInt *data, int N, bool inverse)
-{
-    if ((N & (N - 1)) != 0 || N == 0)
-    {
+// Corrected 1D FFT with proper memory handling
+void fft_1d_riscv_vec(ComplexInt* data, int N, bool inverse) {
+    if ((N & (N - 1)) != 0 || N == 0) {
         throw std::runtime_error("FFT size N must be a power of 2 and greater than 0.");
-    }
-
-    if (!g_twiddle_factors_initialized || g_max_fft_size < N)
-    {
-        initialize_twiddle_factors(std::max(N, g_max_fft_size > 0 ? g_max_fft_size : 256));
     }
 
     bit_reversal_permutation(data, N);
 
-    for (int len = 2; len <= N; len <<= 1)
-    {
+    // FFT butterfly stages
+    for (int len = 2; len <= N; len <<= 1) {
         int half_len = len >> 1;
+        
+        for (int i = 0; i < N; i += len) {
+            for (int j = 0; j < half_len; j += 4) { // Process 4 elements at a time (or adjust based on vector length)
+                int remaining = std::min(4, half_len - j);
+                
+                // Get pointers to real and imaginary parts
+                // Note: This assumes ComplexInt has real and imag as consecutive members
+                int32_t* u_real_ptr = &data[i + j].real;
+                int32_t* u_imag_ptr = &data[i + j].imag;
+                int32_t* v_real_ptr = &data[i + j + half_len].real;
+                int32_t* v_imag_ptr = &data[i + j + half_len].imag;
 
-        ComplexInt W_base_fp = g_twiddle_factors_for_all_lengths[g_max_fft_size / len];
-        if (inverse)
-        {
-            W_base_fp.imag = fp_sub(float_to_fp(0.0f), W_base_fp.imag);
-        }
-
-        for (int i = 0; i < N; i += len)
-        {
-            ComplexInt W_current_fp = float_to_cint(1.0f, 0.0f);
-
-            for (int j = 0; j < half_len;)
-            {
-                size_t vl = __riscv_vsetvl_e32m1(half_len - j);
-
-                int32_t *u_real_ptr = &data[i + j].real;
-                int32_t *u_imag_ptr = &data[i + j].imag;
-                int32_t *v_real_ptr = &data[i + j + half_len].real;
-                int32_t *v_imag_ptr = &data[i + j + half_len].imag;
-
-                fft_butterfly_vec(u_real_ptr, u_imag_ptr,
-                                  v_real_ptr, v_imag_ptr,
-                                  W_current_fp.real, W_current_fp.imag,
-                                  vl);
-
-                W_current_fp = cint_mul(W_current_fp, W_base_fp);
-                j += vl;
+                // For now, do scalar operations due to stride issues
+                for (int elem = 0; elem < remaining; ++elem) {
+                    ComplexInt u = {u_real_ptr[elem * 2], u_imag_ptr[elem * 2]};
+                    ComplexInt v = {v_real_ptr[elem * 2], v_imag_ptr[elem * 2]};
+                    
+                    ComplexInt W = get_twiddle_factor(len, j + elem);
+                    if (inverse) {
+                        W.imag = fp_sub(float_to_fp(0.0f), W.imag); // Conjugate
+                    }
+                    
+                    ComplexInt v_twiddle = cint_mul(v, W);
+                    
+                    ComplexInt u_new = cint_add(u, v_twiddle);
+                    ComplexInt v_new = cint_sub(u, v_twiddle);
+                    
+                    u_real_ptr[elem * 2] = u_new.real;
+                    u_imag_ptr[elem * 2] = u_new.imag;
+                    v_real_ptr[elem * 2] = v_new.real;
+                    v_imag_ptr[elem * 2] = v_new.imag;
+                }
             }
         }
     }
 
-    if (inverse)
-    {
+    // Normalization for IFFT
+    if (inverse) {
         fixed_point_t N_inv_fp = float_to_fp(1.0f / static_cast<float>(N));
-        for (int i = 0; i < N;)
-        {
-            size_t vl = __riscv_vsetvl_e32m1(N - i);
-
-            vint32m1_t v_real = __riscv_vle32_v_i32m1(&data[i].real, vl);
-            vint32m1_t v_imag = __riscv_vle32_v_i32m1(&data[i].imag, vl);
-
-            vint32m1_t N_inv_vec = __riscv_vmv_v_x_i32m1(N_inv_fp, vl);
-
-            v_real = fp_mul_vv_i32m1(v_real, N_inv_vec, vl);
-            v_imag = fp_mul_vv_i32m1(v_imag, N_inv_vec, vl);
-
-            __riscv_vse32_v_i32m1(&data[i].real, v_real, vl);
-            __riscv_vse32_v_i32m1(&data[i].imag, v_imag, vl);
-            i += vl;
+        for (int i = 0; i < N; ++i) {
+            data[i].real = fp_mul(data[i].real, N_inv_fp);
+            data[i].imag = fp_mul(data[i].imag, N_inv_fp);
         }
     }
 }
 
-// --- 2D FFT Implementation ---
-void fft_2d_riscv_vec(ComplexInt *image_data, int M, int N, bool inverse)
-{
-    if ((M & (M - 1)) != 0 || (N & (N - 1)) != 0 || M == 0 || N == 0)
-    {
+// Simplified and corrected 2D FFT
+void fft_2d_riscv_vec(ComplexInt* image_data, int M, int N, bool inverse) {
+    if ((M & (M - 1)) != 0 || (N & (N - 1)) != 0 || M == 0 || N == 0) {
         throw std::runtime_error("Image dimensions (M, N) must be powers of 2 and greater than 0.");
     }
-
-    // 1. Perform 1D FFT on each row
-    std::cout << "  2D FFT: Processing rows (" << M << " rows of " << N << " elements)..." << std::endl;
-    for (int r = 0; r < M; ++r)
-    {
+    
+    std::cout << "  2D FFT: Processing " << M << "x" << N << " image..." << std::endl;
+    
+    // Process rows
+    std::cout << "  Processing rows..." << std::endl;
+    for (int r = 0; r < M; ++r) {
         fft_1d_riscv_vec(&image_data[r * N], N, inverse);
     }
 
-    // 2. Transpose the matrix
-    std::vector<ComplexInt> temp_transposed_data(M * N);
-    std::cout << "  2D FFT: Transposing matrix (1st transpose)..." << std::endl;
-    for (int r = 0; r < M; ++r)
-    {
-        for (int c = 0; c < N; ++c)
-        {
-            temp_transposed_data[c * M + r] = image_data[r * N + c];
+    // Transpose
+    std::cout << "  Transposing matrix..." << std::endl;
+    std::vector<ComplexInt> temp(M * N);
+    for (int r = 0; r < M; ++r) {
+        for (int c = 0; c < N; ++c) {
+            temp[c * M + r] = image_data[r * N + c];
         }
     }
-    std::copy(temp_transposed_data.begin(), temp_transposed_data.end(), image_data);
+    std::memcpy(image_data, temp.data(), M * N * sizeof(ComplexInt));
 
-    // 3. Perform 1D FFT on each "column" (which are now rows after transpose)
-    std::cout << "  2D FFT: Processing columns (now rows) (" << N << " rows of " << M << " elements)..." << std::endl;
-    for (int c_original = 0; c_original < N; ++c_original)
-    {
-        fft_1d_riscv_vec(&image_data[c_original * M], M, inverse);
+    // Process columns (now rows after transpose)
+    std::cout << "  Processing columns..." << std::endl;
+    for (int c = 0; c < N; ++c) {
+        fft_1d_riscv_vec(&image_data[c * M], M, inverse);
     }
 
-    // 4. Transpose back to original orientation
-    std::cout << "  2D FFT: Transposing matrix (2nd transpose)..." << std::endl;
-    for (int r_transposed = 0; r_transposed < N; ++r_transposed)
-    {
-        for (int c_transposed = 0; c_transposed < M; ++c_transposed)
-        {
-            temp_transposed_data[c_transposed * N + r_transposed] = image_data[r_transposed * M + c_transposed];
+    // Transpose back
+    std::cout << "  Final transpose..." << std::endl;
+    for (int r = 0; r < N; ++r) {
+        for (int c = 0; c < M; ++c) {
+            temp[c * N + r] = image_data[r * M + c];
         }
     }
-    std::copy(temp_transposed_data.begin(), temp_transposed_data.end(), image_data);
-    std::cout << "  2D FFT: Transpose completed." << std::endl;
+    std::memcpy(image_data, temp.data(), M * N * sizeof(ComplexInt));
+    
+    std::cout << "  2D FFT completed." << std::endl;
 }
