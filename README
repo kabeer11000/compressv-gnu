@@ -1,1 +1,3 @@
-
+2D FFT algorithim on the RISC-V architecture, utilizing QEMU for development. 
+Target Linux + Contains Server battries included.
+Sister repository: /kabeer11000/compressv (Targets ELF / Baremetal RV32I-V)
